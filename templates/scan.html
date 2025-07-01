@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Face Scanner - Missing Person Finder</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.7.2/font/bootstrap-icons.css" rel="stylesheet">
+    <style>
+        .sidebar {
+            min-height: 100vh;
+            background: linear-gradient(180deg, #4e73df 10%, #224abe 100%);
+            padding-top: 20px;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 250px;
+            z-index: 1;
+        }
+
+        .sidebar-brand {
+            color: white;
+            text-decoration: none;
+            font-size: 1.2rem;
+            font-weight: 800;
+            text-align: center;
+            text-transform: uppercase;
+            letter-spacing: 0.05rem;
+            padding: 1.5rem 1rem;
+            margin-bottom: 1rem;
+        }
+
+        .sidebar hr {
+            margin: 0 1rem 1rem;
+            border-top: 1px solid rgba(255, 255, 255, 0.15);
+        }
+
+        .sidebar-heading {
+            color: rgba(255, 255, 255, 0.4);
+            font-size: 0.75rem;
+            font-weight: 800;
+            padding: 0 1rem;
+            margin-bottom: 0.5rem;
+            text-transform: uppercase;
+        }
+
+        .sidebar a {
+            color: rgba(255, 255, 255, 0.8);
+            text-decoration: none;
+            padding: 0.8rem 1rem;
+            display: flex;
+            align-items: center;
+            transition: all 0.2s;
+        }
+
+        .sidebar a:hover {
+            color: white;
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .sidebar a.active {
+            color: white;
+            font-weight: 600;
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .sidebar i {
+            margin-right: 0.75rem;
+            font-size: 1rem;
+            width: 1.5rem;
+            text-align: center;
+        }
+
+        .main-content {
+            margin-left: 250px;
+            padding: 1.5rem;
+            background: #f8f9fc;
+            min-height: 100vh;
+        }
+
+        #video-container {
+            position: relative;
+            width: 100%;
+            max-width: 640px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 0.35rem;
+            box-shadow: 0 0.15rem 1.75rem 0 rgba(58, 59, 69, 0.15);
+            padding: 1rem;
+        }
+
+        #video {
+            width: 100%;
+            border-radius: 0.35rem;
+        }
+
+        #preview-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+
+        #capture-canvas {
+            display: none;
+        }
+
+        .match-card {
+            background: white;
+            border-radius: 0.35rem;
+            padding: 1.25rem;
+            margin-bottom: 1rem;
+            box-shadow: 0 0.15rem 1.75rem 0 rgba(58, 59, 69, 0.15);
+            border-left: 0.25rem solid #4e73df;
+        }
+
+        .confidence-high {
+            color: #1cc88a;
+            font-weight: bold;
+        }
+
+        .confidence-medium {
+            color: #f6c23e;
+            font-weight: bold;
+        }
+
+        .confidence-low {
+            color: #e74a3b;
+            font-weight: bold;
+        }
+
+        .btn-primary {
+            background: #4e73df;
+            border-color: #4e73df;
+        }
+
+        .btn-primary:hover {
+            background: #2e59d9;
+            border-color: #2e59d9;
+        }
+
+        .card {
+            border: none;
+            border-radius: 0.35rem;
+            box-shadow: 0 0.15rem 1.75rem 0 rgba(58, 59, 69, 0.15);
+        }
+
+        .card-header {
+            background: white;
+            border-bottom: 1px solid #e3e6f0;
+            padding: 1rem 1.25rem;
+            font-weight: 700;
+            color: #4e73df;
+        }
+    </style>
+</head>
+<body>
+    <div class="container-fluid p-0">
+        <div class="sidebar">
+            <a href="#" class="sidebar-brand">
+                <i class="bi bi-people-fill"></i>
+                Missing Person Finder
+            </a>
+            <hr>
+            <div class="sidebar-heading">Core</div>
+            <nav>
+                <a href="{{ url_for('dashboard') }}">
+                    <i class="bi bi-speedometer2"></i>
+                    Dashboard
+                </a>
+                <a href="{{ url_for('new_case') }}">
+                    <i class="bi bi-person-plus"></i>
+                    Register Case
+                </a>
+                <a href="{{ url_for('view_cases') }}">
+                    <i class="bi bi-list-ul"></i>
+                    View Cases
+                </a>
+                <a href="{{ url_for('scan') }}" class="active">
+                    <i class="bi bi-camera"></i>
+                    Scan Faces
+                </a>
+            </nav>
+            <hr>
+            <div class="sidebar-heading">User</div>
+            <nav>
+                <a href="{{ url_for('profile') }}">
+                    <i class="bi bi-person"></i>
+                    Profile
+                </a>
+                <a href="{{ url_for('logout') }}">
+                    <i class="bi bi-box-arrow-right"></i>
+                    Logout
+                </a>
+            </nav>
+        </div>
+
+        <div class="main-content">
+            <div class="d-sm-flex align-items-center justify-content-between mb-4">
+                <h1 class="h3 mb-0 text-gray-800">Face Scanner</h1>
+    </div>
+
+            <div class="row">
+        <div class="col-lg-8">
+                    <div class="card mb-4">
+                        <div class="card-header">
+                            <i class="bi bi-camera-fill me-1"></i>
+                            Camera Feed
+                        </div>
+                        <div class="card-body">
+                            <div id="video-container">
+                                <video id="video" autoplay playsinline></video>
+                                <canvas id="preview-canvas"></canvas>
+                                <canvas id="capture-canvas"></canvas>
+                            </div>
+                            <div class="text-center mt-3">
+                                <button id="scan-button" class="btn btn-primary btn-lg me-2">
+                                    <i class="bi bi-camera"></i> Scan Face
+                                </button>
+                                <button id="retry-button" class="btn btn-secondary btn-lg d-none">
+                                    <i class="bi bi-arrow-clockwise"></i> Retry Scan
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-lg-4">
+                    <div class="card">
+                        <div class="card-header">
+                            <i class="bi bi-search me-1"></i>
+                            Matches
+                        </div>
+                        <div class="card-body">
+                            <div id="results"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+        let videoStream;
+        let isScanning = false;
+        const video = document.getElementById('video');
+        const previewCanvas = document.getElementById('preview-canvas');
+        const captureCanvas = document.getElementById('capture-canvas');
+        const previewCtx = previewCanvas.getContext('2d');
+        const captureCtx = captureCanvas.getContext('2d');
+        const scanButton = document.getElementById('scan-button');
+        const retryButton = document.getElementById('retry-button');
+
+        // Get video stream
+        async function setupCamera() {
+            try {
+                videoStream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { 
+                        width: { ideal: 640 },
+                        height: { ideal: 480 },
+                        facingMode: "user"
+                    } 
+                });
+                video.srcObject = videoStream;
+                
+                // Set canvas sizes after video loads
+                video.onloadedmetadata = () => {
+                    previewCanvas.width = video.videoWidth;
+                    previewCanvas.height = video.videoHeight;
+                    captureCanvas.width = video.videoWidth;
+                    captureCanvas.height = video.videoHeight;
+                    
+                    // Start face detection preview
+                    isScanning = true;
+                    detectFacesPreview();
+                };
+            } catch (err) {
+                console.error('Error accessing camera:', err);
+                alert('Error accessing camera. Please make sure you have granted camera permissions.');
+            }
+        }
+
+        // Continuously detect faces in preview
+        async function detectFacesPreview() {
+            if (videoStream && video.readyState === 4 && isScanning) {
+                // Clear previous drawing
+                previewCtx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
+                
+                // Draw video frame
+                previewCtx.drawImage(video, 0, 0, previewCanvas.width, previewCanvas.height);
+                
+                // Draw face detection rectangle
+                previewCtx.strokeStyle = '#00ff00';
+                previewCtx.lineWidth = 3;
+                previewCtx.strokeRect(
+                    previewCanvas.width * 0.25,
+                    previewCanvas.height * 0.15,
+                    previewCanvas.width * 0.5,
+                    previewCanvas.height * 0.7
+                );
+                requestAnimationFrame(detectFacesPreview);
+            }
+        }
+
+        // Reset scan state
+        function resetScan() {
+            isScanning = true;
+            scanButton.classList.remove('d-none');
+            retryButton.classList.add('d-none');
+            document.getElementById('results').innerHTML = '';
+            detectFacesPreview();
+        }
+
+        // Capture image from video
+        function captureImage() {
+            captureCtx.drawImage(video, 0, 0, captureCanvas.width, captureCanvas.height);
+            return captureCanvas.toDataURL('image/jpeg', 0.9);
+        }
+
+        // Send image to server for scanning
+        async function scanFace() {
+            const imageData = captureImage();
+            const results = document.getElementById('results');
+            
+            scanButton.disabled = true;
+            scanButton.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Scanning...';
+            results.innerHTML = '<div class="text-center"><div class="spinner-border"></div></div>';
+            
+            try {
+                // Get location data
+                let locationData = {
+                    latitude: '0',
+                    longitude: '0',
+                    address: 'Unknown location'
+                };
+                
+                try {
+                    const position = await new Promise((resolve, reject) => {
+                        navigator.geolocation.getCurrentPosition(resolve, reject);
+                    });
+                    
+                    locationData = {
+                        latitude: position.coords.latitude.toString(),
+                        longitude: position.coords.longitude.toString()
+                    };
+                    
+                    // Get address using reverse geocoding
+                    const geoResponse = await fetch(
+                        `https://nominatim.openstreetmap.org/reverse?format=json&lat=${locationData.latitude}&lon=${locationData.longitude}`
+                    );
+                    const geoData = await geoResponse.json();
+                    locationData.address = geoData.display_name;
+                } catch (error) {
+                    console.warn('Error getting location:', error);
+                }
+                
+                // Create form data
+                const formData = new FormData();
+                formData.append('face_image', imageData);
+                formData.append('latitude', locationData.latitude);
+                formData.append('longitude', locationData.longitude);
+                formData.append('address', locationData.address);
+                
+                const response = await fetch('/api/scan', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const data = await response.json();
+                
+                // Stop scanning after getting result
+                isScanning = false;
+                scanButton.classList.add('d-none');
+                retryButton.classList.remove('d-none');
+                
+                handleScanResponse(data);
+            } catch (error) {
+                results.innerHTML = '<div class="alert alert-danger">Error scanning face</div>';
+                console.error('Error:', error);
+            } finally {
+                scanButton.disabled = false;
+                scanButton.innerHTML = '<i class="bi bi-camera"></i> Scan Face';
+            }
+        }
+
+        function handleScanResponse(response) {
+            const results = document.getElementById('results');
+            
+            if (response.success) {
+                if (response.matches && response.matches.length > 0) {
+                    // Found exact match
+                    let matchesHtml = '';
+                    response.matches.forEach(match => {
+                        matchesHtml += `
+                            <div class="alert alert-success">
+                                <h4><i class="bi bi-check-circle-fill"></i> Exact Match Found!</h4>
+                                <div class="match-details">
+                                    <p><strong>Name:</strong> ${match.name}</p>
+                                    <p><strong>Age:</strong> ${match.age}</p>
+                                    <p><strong>Gender:</strong> ${match.gender}</p>
+                                    <p><strong>Last Seen:</strong> ${match.last_seen_location} on ${match.last_seen_date}</p>
+                                    <p><strong>Guardian:</strong> ${match.guardian_name}</p>
+                                    <p><strong>Match Accuracy:</strong> ${(match.match_accuracy * 100).toFixed(1)}%</p>
+                                    ${match.match_warning ? `<div class='alert alert-warning mt-2'><i class='bi bi-exclamation-triangle-fill'></i> ${match.match_warning}</div>` : ''}
+                                    <a href="/case/${match.case_id}" class="btn btn-primary mt-2" target="_blank">
+                                        <i class="bi bi-person-lines-fill"></i> View Person Details
+                                    </a>
+                                    ${match.notification_sent ? 
+                                        '<div class="alert alert-info mt-2"><i class="bi bi-bell-fill"></i> Guardian has been notified</div>' : 
+                                        `<div class="alert alert-danger mt-2"><i class="bi bi-exclamation-triangle-fill"></i> Failed to notify guardian: ${match.notification_error}</div>`
+                                    }
+                                </div>
+                            </div>`;
+                    });
+                    results.innerHTML = matchesHtml;
+                } else {
+                    // No match found - unknown face
+                    results.innerHTML = `
+                        <div class="alert alert-warning">
+                            <h4><i class="bi bi-question-circle-fill"></i> Unknown Face</h4>
+                            <p>This face is not registered in our system.</p>
+                            <hr>
+                            <p class="mb-0">If this is a missing person, please <a href="/new-case" class="alert-link">register a new case</a>.</p>
+                        </div>`;
+                }
+                } else {
+                // Error occurred
+                results.innerHTML = `
+                    <div class="alert alert-danger">
+                        <h4><i class="bi bi-exclamation-triangle-fill"></i> Error</h4>
+                        <p>${response.message}</p>
+                        <hr>
+                        <p class="mb-0">Please try again and make sure:</p>
+                        <ul class="mb-0">
+                            <li>Face is clearly visible</li>
+                            <li>Good lighting conditions</li>
+                            <li>Person is looking directly at camera</li>
+                            <li>Only one face is in the frame</li>
+                        </ul>
+                    </div>`;
+            }
+        }
+
+        // Initialize camera when page loads
+        document.addEventListener('DOMContentLoaded', setupCamera);
+        
+        // Add click events to buttons
+        scanButton.addEventListener('click', scanFace);
+        retryButton.addEventListener('click', resetScan);
+</script>
+</body>
+</html> 

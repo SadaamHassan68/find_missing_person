@@ -1,0 +1,43 @@
+# Web Framework
+Flask==2.2.5
+Flask-SQLAlchemy==2.5.1
+Flask-Login==0.6.2
+Flask-WTF==1.1.1
+Werkzeug==2.2.3
+Bootstrap-Flask==2.2.0
+
+# Database
+SQLAlchemy==1.4.46
+alembic==1.11.3
+
+# Image Processing
+opencv-python==4.7.0.72
+numpy==1.24.3
+Pillow==9.5.0
+
+# Location Services
+geopy==2.3.0
+requests==2.31.0
+
+# SMS Service
+twilio==7.16.0
+
+# Security
+python-dotenv==1.0.0
+bcrypt==4.0.1
+PyJWT==2.7.0
+
+# Utils
+python-dateutil==2.8.2
+pytz==2023.3
+validators==0.22.0
+pandas==2.3.0
+reportlab==4.4.2
+
+# Development
+pytest==7.3.1
+black==23.3.0
+flake8==6.0.0
+
+# Additional
+face_recognition
