@@ -439,24 +439,21 @@ def api_scan():
                 "matches": []
             })
         scanned_encoding = face_encodings[0]
-        
-        # Get all missing cases
-        cases = Case.query.filter_by(status='missing').all()
+
+        # Match against ALL cases (not just missing)
+        cases = Case.query.all()
+        best_case = None
+        best_photo = None
+        best_distance = float('inf')
+        best_accuracy = 0.0
+        best_warning = None
+
         for case in cases:
-            best_match = None
-            best_distance = float('inf')
-            best_accuracy = 0.0
-            best_photo = None
-            best_warning = None
-            best_success = False
-            best_message = None
-            best_message_id = None
             for photo in case.photos:
                 if photo.face_encoding:
                     try:
                         db_encoding = np.array(json.loads(photo.face_encoding))
                         face_distance = np.linalg.norm(scanned_encoding - db_encoding)
-                        is_match = face_distance <= 0.4  # stricter threshold
                         accuracy = max(0.0, 1.0 - face_distance)
                         warning = None
                         if accuracy < 0.8:
@@ -464,57 +461,62 @@ def api_scan():
                         if face_distance < best_distance:
                             best_distance = face_distance
                             best_accuracy = accuracy
+                            best_case = case
                             best_photo = photo
                             best_warning = warning
-                            if is_match:
-                                # Send SMS notification
-                                success, message, message_id = send_match_notification(
-                                    case.guardian_phone,
-                                    case.name,
-                                    {
-                                        'latitude': request.form.get('latitude', '0'),
-                                        'longitude': request.form.get('longitude', '0'),
-                                        'address': request.form.get('address', 'Unknown location'),
-                                        'timestamp': datetime.now().isoformat()
-                                    },
-                                    {
-                                        'guardian_name': case.guardian_name,
-                                        'age': case.age,
-                                        'gender': case.gender
-                                    }
-                                )
-                                best_success = success
-                                best_message = message
-                                best_message_id = message_id
-                                best_match = True
-                            else:
-                                best_match = False
                     except Exception as e:
                         app.logger.error(f"Error decoding face encoding: {e}")
-            if best_match:
-                return jsonify({
-                    "success": True,
-                    "matches": [{
-                        'case_id': case.id,
-                        'name': case.name,
-                        'age': case.age,
-                        'gender': case.gender,
-                        'last_seen_location': case.last_seen_location,
-                        'last_seen_date': case.last_seen_date.strftime('%Y-%m-%d') if case.last_seen_date else None,
-                        'guardian_name': case.guardian_name,
-                        'guardian_phone': case.guardian_phone,
-                        'notification_sent': best_success,
-                        'notification_error': None if best_success else best_message,
-                        'message_id': best_message_id,
-                        'match_accuracy': round(best_accuracy, 3),
-                        'match_warning': best_warning
-                    }]
-                })
-        return jsonify({
-            "success": True,
-            "message": "Face detected but no matching cases found.",
-            "matches": []
-        })
+
+        if best_case:
+            # Try to notify guardian and include result in response
+            notification_sent = None
+            notification_error = None
+            message_id = None
+            try:
+                from utils.sms_service import send_match_notification
+                notification_sent, notification_error, message_id = send_match_notification(
+                    best_case.guardian_phone,
+                    best_case.name,
+                    {
+                        'latitude': request.form.get('latitude', '0'),
+                        'longitude': request.form.get('longitude', '0'),
+                        'address': request.form.get('address', 'Unknown location'),
+                        'timestamp': datetime.now().isoformat()
+                    },
+                    {
+                        'guardian_name': best_case.guardian_name,
+                        'age': best_case.age,
+                        'gender': best_case.gender
+                    }
+                )
+            except Exception as e:
+                notification_sent = False
+                notification_error = str(e)
+                message_id = None
+            return jsonify({
+                "success": True,
+                "matches": [{
+                    'case_id': best_case.id,
+                    'name': best_case.name,
+                    'age': best_case.age,
+                    'gender': best_case.gender,
+                    'last_seen_location': best_case.last_seen_location,
+                    'last_seen_date': best_case.last_seen_date.strftime('%Y-%m-%d') if best_case.last_seen_date else None,
+                    'guardian_name': best_case.guardian_name,
+                    'guardian_phone': best_case.guardian_phone,
+                    'match_accuracy': round(best_accuracy, 3),
+                    'match_warning': best_warning,
+                    'notification_sent': notification_sent,
+                    'notification_error': notification_error,
+                    'message_id': message_id
+                }]
+            })
+        else:
+            return jsonify({
+                "success": True,
+                "message": "Face detected but no matching cases found.",
+                "matches": []
+            })
     except Exception as e:
         app.logger.error(f"Error in face scanning: {str(e)}")
         return jsonify({"success": False, "message": "Error processing face scan. Please try again."}), 500
