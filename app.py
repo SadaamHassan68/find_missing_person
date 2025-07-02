@@ -65,8 +65,8 @@ face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_fronta
 def load_face_encodings():
     if os.path.exists(ENCODINGS_FILE):
         try:
-            with open(ENCODINGS_FILE, 'rb') as f:
-                return pickle.load(f)
+            with open(ENCODINGS_FILE, 'r') as f:
+                return json.load(f)
         except Exception as e:
             app.logger.error(f"Error loading face encodings: {str(e)}")
             return {"ids": [], "encodings": []}
@@ -74,8 +74,8 @@ def load_face_encodings():
 
 def save_face_encodings(encodings_data):
     try:
-        with open(ENCODINGS_FILE, 'wb') as f:
-            pickle.dump(encodings_data, f)
+        with open(ENCODINGS_FILE, 'w') as f:
+            json.dump(encodings_data, f)
     except Exception as e:
         app.logger.error(f"Error saving face encodings: {str(e)}")
 
@@ -359,22 +359,26 @@ def new_case():
                 filename = f"{case.id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg"
                 photo_path = os.path.join('data/faces', filename)
                 photo.save(photo_path)
-                
+
                 # Detect faces using OpenCV
                 image = cv2.imread(photo_path)
                 rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
                 face_locations = face_recognition.face_locations(rgb_image)
+                if len(face_locations) != 1:
+                    flash('Please upload a photo with exactly one clear, front-facing face.', 'error')
+                    continue
                 face_encodings = face_recognition.face_encodings(rgb_image, face_locations)
-                
-                if face_encodings:
-                    # Store the first face encoding found
-                    encoding_list = face_encodings[0].tolist()
-                    photo_record = Photo(
-                        filename=filename,
-                        face_encoding=json.dumps(encoding_list),
-                        case_id=case.id
-                    )
-                    db.session.add(photo_record)
+                if not face_encodings:
+                    flash('No face detected in the uploaded photo. Please upload a clear, front-facing photo.', 'error')
+                    continue
+                # Store the first face encoding found
+                encoding_list = face_encodings[0].tolist()
+                photo_record = Photo(
+                    filename=filename,
+                    face_encoding=json.dumps(encoding_list),
+                    case_id=case.id
+                )
+                db.session.add(photo_record)
         
         db.session.commit()
         log_activity('new_case', f'New case registered: {name}')
@@ -442,41 +446,37 @@ def api_scan():
 
         # Match against ALL cases (not just missing)
         cases = Case.query.all()
-        best_case = None
-        best_photo = None
-        best_distance = float('inf')
-        best_accuracy = 0.0
-        best_warning = None
-
+        all_encodings = []
+        all_infos = []
         for case in cases:
             for photo in case.photos:
                 if photo.face_encoding:
                     try:
                         db_encoding = np.array(json.loads(photo.face_encoding))
-                        face_distance = np.linalg.norm(scanned_encoding - db_encoding)
-                        accuracy = max(0.0, 1.0 - face_distance)
-                        warning = None
-                        if accuracy < 0.8:
-                            warning = "Warning: Match confidence is below 80%. Please verify manually."
-                        if face_distance < best_distance:
-                            best_distance = face_distance
-                            best_accuracy = accuracy
-                            best_case = case
-                            best_photo = photo
-                            best_warning = warning
+                        all_encodings.append(db_encoding)
+                        all_infos.append((case, photo))
                     except Exception as e:
                         app.logger.error(f"Error decoding face encoding: {e}")
-
-        if best_case:
-            # Try to notify guardian and include result in response
+        if not all_encodings:
+            return jsonify({
+                "success": True,
+                "message": "Not found person in our database.",
+                "matches": []
+            })
+        # Batch distance calculation
+        distances = face_recognition.face_distance(np.array(all_encodings), scanned_encoding)
+        best_idx = np.argmin(distances)
+        best_distance = distances[best_idx]
+        if best_distance <= 0.4:
+            case, photo = all_infos[best_idx]
             notification_sent = None
             notification_error = None
             message_id = None
             try:
                 from utils.sms_service import send_match_notification
                 notification_sent, notification_error, message_id = send_match_notification(
-                    best_case.guardian_phone,
-                    best_case.name,
+                    case.guardian_phone,
+                    case.name,
                     {
                         'latitude': request.form.get('latitude', '0'),
                         'longitude': request.form.get('longitude', '0'),
@@ -484,9 +484,9 @@ def api_scan():
                         'timestamp': datetime.now().isoformat()
                     },
                     {
-                        'guardian_name': best_case.guardian_name,
-                        'age': best_case.age,
-                        'gender': best_case.gender
+                        'guardian_name': case.guardian_name,
+                        'age': case.age,
+                        'gender': case.gender
                     }
                 )
             except Exception as e:
@@ -496,16 +496,16 @@ def api_scan():
             return jsonify({
                 "success": True,
                 "matches": [{
-                    'case_id': best_case.id,
-                    'name': best_case.name,
-                    'age': best_case.age,
-                    'gender': best_case.gender,
-                    'last_seen_location': best_case.last_seen_location,
-                    'last_seen_date': best_case.last_seen_date.strftime('%Y-%m-%d') if best_case.last_seen_date else None,
-                    'guardian_name': best_case.guardian_name,
-                    'guardian_phone': best_case.guardian_phone,
-                    'match_accuracy': round(best_accuracy, 3),
-                    'match_warning': best_warning,
+                    'case_id': case.id,
+                    'name': case.name,
+                    'age': case.age,
+                    'gender': case.gender,
+                    'last_seen_location': case.last_seen_location,
+                    'last_seen_date': case.last_seen_date.strftime('%Y-%m-%d') if case.last_seen_date else None,
+                    'guardian_name': case.guardian_name,
+                    'guardian_phone': case.guardian_phone,
+                    'match_accuracy': round(1.0 - best_distance, 3),
+                    'match_warning': None,
                     'notification_sent': notification_sent,
                     'notification_error': notification_error,
                     'message_id': message_id
@@ -514,7 +514,7 @@ def api_scan():
         else:
             return jsonify({
                 "success": True,
-                "message": "Face detected but no matching cases found.",
+                "message": "Not found person in our database.",
                 "matches": []
             })
     except Exception as e:
@@ -1001,18 +1001,26 @@ def edit_case(case_id):
                 filename = f"{case.id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg"
                 photo_path = os.path.join('data/faces', filename)
                 photo.save(photo_path)
+
+                # Detect faces using OpenCV
                 image = cv2.imread(photo_path)
                 rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
                 face_locations = face_recognition.face_locations(rgb_image)
+                if len(face_locations) != 1:
+                    flash('Please upload a photo with exactly one clear, front-facing face.', 'error')
+                    continue
                 face_encodings = face_recognition.face_encodings(rgb_image, face_locations)
-                if face_encodings:
-                    encoding_list = face_encodings[0].tolist()
-                    photo_record = Photo(
-                        filename=filename,
-                        face_encoding=json.dumps(encoding_list),
-                        case_id=case.id
-                    )
-                    db.session.add(photo_record)
+                if not face_encodings:
+                    flash('No face detected in the uploaded photo. Please upload a clear, front-facing photo.', 'error')
+                    continue
+                # Store the first face encoding found
+                encoding_list = face_encodings[0].tolist()
+                photo_record = Photo(
+                    filename=filename,
+                    face_encoding=json.dumps(encoding_list),
+                    case_id=case.id
+                )
+                db.session.add(photo_record)
         db.session.commit()
         log_activity('edit_case', f'Case updated: {case.name}')
         flash('Case updated successfully', 'success')
