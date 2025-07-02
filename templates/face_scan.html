@@ -615,9 +615,21 @@ async function startScan() {
                 });
                 
                 const result = await response.json();
-                if (result.match) {
-                    showMatchAlert(result.person);
+                const errorBoxId = 'scanErrorBox';
+                let errorBox = document.getElementById(errorBoxId);
+                if (!errorBox) {
+                    errorBox = document.createElement('div');
+                    errorBox.id = errorBoxId;
+                    errorBox.className = 'alert alert-danger mt-3';
+                    statusElement.parentNode.appendChild(errorBox);
+                }
+                if (result.matches && result.matches.length > 0) {
+                    errorBox.style.display = 'none';
+                    showMatchAlert(result.matches[0]);
                     stopScan();
+                } else {
+                    errorBox.textContent = result.message || "Not found person in our database.";
+                    errorBox.style.display = 'block';
                 }
             }
             

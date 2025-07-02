@@ -364,12 +364,15 @@ def new_case():
                 image = cv2.imread(photo_path)
                 rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
                 face_locations = face_recognition.face_locations(rgb_image)
-                if len(face_locations) != 1:
-                    flash('Please upload a photo with exactly one clear, front-facing face.', 'error')
+                if len(face_locations) == 0:
+                    flash(f'No face detected in photo {photo.filename}. Please upload a clear, front-facing photo.', 'error')
+                    continue
+                if len(face_locations) > 1:
+                    flash(f'Multiple faces detected in photo {photo.filename}. Please upload a photo with only one face.', 'error')
                     continue
                 face_encodings = face_recognition.face_encodings(rgb_image, face_locations)
                 if not face_encodings:
-                    flash('No face detected in the uploaded photo. Please upload a clear, front-facing photo.', 'error')
+                    flash(f'Face encoding failed for photo {photo.filename}. Please try a different photo.', 'error')
                     continue
                 # Store the first face encoding found
                 encoding_list = face_encodings[0].tolist()
@@ -428,18 +431,23 @@ def api_scan():
         # Get face encoding for the scanned image (resize and crop to face)
         rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         face_locations = face_recognition.face_locations(rgb_image)
-        face_encodings = []
-        for (top, right, bottom, left) in face_locations:
-            face_img = rgb_image[top:bottom, left:right]
-            # Resize face region to 300x300 for speed
-            face_img = cv2.resize(face_img, (300, 300))
-            encs = face_recognition.face_encodings(face_img)
-            if encs:
-                face_encodings.append(encs[0])
+        if len(face_locations) == 0:
+            return jsonify({
+                "success": True,
+                "message": "No face detected in the image. Please try again with a clear, front-facing photo.",
+                "matches": []
+            })
+        if len(face_locations) > 1:
+            return jsonify({
+                "success": True,
+                "message": "Multiple faces detected in the image. Please scan only one face at a time.",
+                "matches": []
+            })
+        face_encodings = face_recognition.face_encodings(rgb_image, face_locations)
         if not face_encodings:
             return jsonify({
                 "success": True,
-                "message": "Face detected but no matching cases found.",
+                "message": "Face encoding failed. Please try again with a clearer image.",
                 "matches": []
             })
         scanned_encoding = face_encodings[0]
@@ -1006,12 +1014,15 @@ def edit_case(case_id):
                 image = cv2.imread(photo_path)
                 rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
                 face_locations = face_recognition.face_locations(rgb_image)
-                if len(face_locations) != 1:
-                    flash('Please upload a photo with exactly one clear, front-facing face.', 'error')
+                if len(face_locations) == 0:
+                    flash(f'No face detected in photo {photo.filename}. Please upload a clear, front-facing photo.', 'error')
+                    continue
+                if len(face_locations) > 1:
+                    flash(f'Multiple faces detected in photo {photo.filename}. Please upload a photo with only one face.', 'error')
                     continue
                 face_encodings = face_recognition.face_encodings(rgb_image, face_locations)
                 if not face_encodings:
-                    flash('No face detected in the uploaded photo. Please upload a clear, front-facing photo.', 'error')
+                    flash(f'Face encoding failed for photo {photo.filename}. Please try a different photo.', 'error')
                     continue
                 # Store the first face encoding found
                 encoding_list = face_encodings[0].tolist()
