@@ -141,4 +141,4 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## Contact
 
-For any queries or support, please contact [Your Contact Information]
+For any queries or support, please contact [+252613695258]
