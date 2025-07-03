@@ -61,6 +61,29 @@ app.logger.info(f"Faces directory: {os.path.abspath('data/faces')}")
 # Load face detection cascade classifier
 face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
 
+# === FACE ENCODING CACHE ===
+FACE_ENCODING_CACHE = []  # List of numpy arrays
+FACE_INFO_CACHE = []     # List of (case, photo) tuples
+
+def load_face_encoding_cache():
+    global FACE_ENCODING_CACHE, FACE_INFO_CACHE
+    FACE_ENCODING_CACHE = []
+    FACE_INFO_CACHE = []
+    cases = Case.query.all()
+    for case in cases:
+        for photo in getattr(case, 'photos', []):
+            if photo.face_encoding:
+                try:
+                    db_encoding = np.array(json.loads(photo.face_encoding))
+                    FACE_ENCODING_CACHE.append(db_encoding)
+                    FACE_INFO_CACHE.append((case, photo))
+                except Exception as e:
+                    app.logger.error(f"Error decoding face encoding for cache: {e}")
+
+# Load cache at startup
+with app.app_context():
+    load_face_encoding_cache()
+
 # Initialize face recognition model
 def load_face_encodings():
     if os.path.exists(ENCODINGS_FILE):
@@ -385,6 +408,8 @@ def new_case():
         
         db.session.commit()
         log_activity('new_case', f'New case registered: {name}')
+        # Update face encoding cache after new case/photo
+        load_face_encoding_cache()
         flash('Case registered successfully', 'success')
         return redirect(url_for('view_cases'))
     
@@ -452,31 +477,19 @@ def api_scan():
             })
         scanned_encoding = face_encodings[0]
 
-        # Match against ALL cases (not just missing)
-        cases = Case.query.all()
-        all_encodings = []
-        all_infos = []
-        for case in cases:
-            for photo in case.photos:
-                if photo.face_encoding:
-                    try:
-                        db_encoding = np.array(json.loads(photo.face_encoding))
-                        all_encodings.append(db_encoding)
-                        all_infos.append((case, photo))
-                    except Exception as e:
-                        app.logger.error(f"Error decoding face encoding: {e}")
-        if not all_encodings:
+        # Use in-memory cache for matching
+        if not FACE_ENCODING_CACHE:
             return jsonify({
                 "success": True,
                 "message": "Not found person in our database.",
                 "matches": []
             })
         # Batch distance calculation
-        distances = face_recognition.face_distance(np.array(all_encodings), scanned_encoding)
+        distances = face_recognition.face_distance(np.array(FACE_ENCODING_CACHE), scanned_encoding)
         best_idx = np.argmin(distances)
         best_distance = distances[best_idx]
         if best_distance <= 0.4:
-            case, photo = all_infos[best_idx]
+            case, photo = FACE_INFO_CACHE[best_idx]
             notification_sent = None
             notification_error = None
             message_id = None
@@ -605,6 +618,7 @@ def delete_case(case_id):
         db.session.delete(case)
         db.session.commit()
         
+        load_face_encoding_cache()
         log_activity('case_deleted', f'Case {case.name} deleted')
         return jsonify({"success": True})
     except Exception as e:
