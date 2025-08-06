@@ -27,6 +27,9 @@ from flask_migrate import Migrate
 from utils.face_recognition import compare_faces
 import face_recognition
 import pickle
+import time
+from wtforms.validators import ValidationError
+import re
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'your-secret-key-here'
@@ -338,14 +341,31 @@ def dashboard():
         user_cases = Case.query.filter_by(reporter_id=current_user.id).all()
         return render_template('user_dashboard.html', user_cases=user_cases)
 
+# Custom validators
+def validate_name_only_letters(form, field):
+    if field.data:
+        if not re.match(r'^[A-Za-z\s]+$', field.data):
+            raise ValidationError('⚠️ Please match the requested format.')
+        if len(field.data.strip()) < 2:
+            raise ValidationError('⚠️ Please match the requested format.')
+        if len(field.data.strip()) > 50:
+            raise ValidationError('⚠️ Please match the requested format.')
+
+def validate_phone_only_digits(form, field):
+    if field.data:
+        if not re.match(r'^\d+$', field.data):
+            raise ValidationError('⚠️ Please match the requested format.')
+        if len(field.data) < 7 or len(field.data) > 15:
+            raise ValidationError('⚠️ Please match the requested format.')
+
 class NewCaseForm(FlaskForm):
-    name = StringField('Full Name', validators=[DataRequired()])
+    name = StringField('Full Name', validators=[DataRequired(), validate_name_only_letters])
     age = IntegerField('Age', validators=[DataRequired(), NumberRange(min=0, max=120)])
     gender = SelectField('Gender', choices=[('', 'Select Gender'), ('male', 'Male'), ('female', 'Female')], validators=[DataRequired()])
     last_seen_location = StringField('Last Known Location', validators=[DataRequired()])
     last_seen_date = DateField('Last Seen Date', validators=[DataRequired()])
-    guardian_name = StringField('Guardian Name', validators=[DataRequired()])
-    guardian_phone = StringField('Guardian Phone', validators=[DataRequired()])
+    guardian_name = StringField('Guardian Name', validators=[DataRequired(), validate_name_only_letters])
+    guardian_phone = StringField('Guardian Phone', validators=[DataRequired(), validate_phone_only_digits])
     photos = MultipleFileField('Photos')
 
 @app.route('/new-case', methods=['GET', 'POST'])
@@ -441,6 +461,7 @@ def scan():
 @app.route('/api/scan', methods=['POST'])
 @login_required
 def api_scan():
+    t0 = time.time()
     try:
         # Get the base64 image from the request
         face_image_base64 = request.form['face_image'].split(',')[1]
@@ -541,6 +562,9 @@ def api_scan():
     except Exception as e:
         app.logger.error(f"Error in face scanning: {str(e)}")
         return jsonify({"success": False, "message": "Error processing face scan. Please try again."}), 500
+    finally:
+        t1 = time.time()
+        app.logger.info(f"Scan processing time: {t1-t0:.3f} seconds")
 
 @app.route('/profile', methods=['GET', 'POST'])
 @login_required
@@ -1067,6 +1091,73 @@ def fix_user_dates():
     conn.commit()
     conn.close()
     return 'User created_at fields updated successfully.'
+
+def webcam_face_scan():
+    """
+    Standalone function to scan faces using webcam, match against known encodings, and clean up resources after each scan.
+    """
+    import cv2
+    import face_recognition
+    import time
+    import os
+    import json
+    import numpy as np
+
+    # Load known encodings from directory (data/encodings/encodings.json)
+    encodings_path = os.path.join('data', 'encodings', 'encodings.json')
+    if not os.path.exists(encodings_path):
+        print("No encodings file found.")
+        return
+    with open(encodings_path, 'r') as f:
+        encodings_data = json.load(f)
+    known_face_encodings = [np.array(encoding) for encoding in encodings_data.get('encodings', [])]
+    known_face_ids = encodings_data.get('ids', [])
+
+    # Open webcam
+    cap = cv2.VideoCapture(0)
+    if not cap.isOpened():
+        print("Cannot open webcam.")
+        return
+
+    # Flush camera buffer
+    for _ in range(5):
+        cap.read()
+
+    print("Press 'q' to quit scanning.")
+    match_results = []
+    try:
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                print("Failed to capture frame.")
+                break
+            rgb_frame = frame[:, :, ::-1]
+            face_locations = face_recognition.face_locations(rgb_frame)
+            face_encodings = face_recognition.face_encodings(rgb_frame, face_locations)
+            for (top, right, bottom, left), face_encoding in zip(face_locations, face_encodings):
+                for encoding in known_face_encodings:
+                    is_match, accuracy = compare_faces(face_encoding, encoding, tolerance=0.4)
+                    if is_match:
+                        # Found a match
+                        break
+                name = "Unknown"
+                if is_match:
+                    name = known_face_ids[known_face_encodings.index(encoding)]
+                match_results.append(name)
+                # Draw box and label
+                cv2.rectangle(frame, (left, top), (right, bottom), (0, 255, 0), 2)
+                cv2.putText(frame, name, (left, top - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
+            cv2.imshow('Webcam Face Scan', frame)
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
+    finally:
+        # Cleanup: release camera, destroy windows, clear temp lists
+        cap.release()
+        cv2.destroyAllWindows()
+        del match_results
+        del known_face_encodings
+        del known_face_ids
+        print("Scan finished and resources cleaned up.")
 
 if __name__ == '__main__':
     app.run(debug=True) 

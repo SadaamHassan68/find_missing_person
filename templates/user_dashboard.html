@@ -171,7 +171,7 @@
             <div class="stats-icon" style="background: var(--success-color)">
                 <i class="bi bi-check-circle"></i>
             </div>
-            <div class="stats-number">{{ user_cases|selectattr('status', 'equalto', 'Resolved')|list|length }}</div>
+            <div class="stats-number">{{ user_cases|selectattr('status', 'equalto', 'found')|list|length }}</div>
             <div class="stats-label">Resolved Cases</div>
         </div>
     </div>
@@ -180,7 +180,7 @@
             <div class="stats-icon" style="background: #e74a3b">
                 <i class="bi bi-clock-history"></i>
             </div>
-            <div class="stats-number">{{ user_cases|selectattr('status', 'equalto', 'Open')|list|length }}</div>
+            <div class="stats-number">{{ user_cases|selectattr('status', 'equalto', 'missing')|list|length }}</div>
             <div class="stats-label">Open Cases</div>
         </div>
     </div>
